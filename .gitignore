@@ -1,3 +1,9 @@
+*.csv
+*.pdf
+*.gif
+*.jpg
+
+
 # Prerequisites
 *.d
 
