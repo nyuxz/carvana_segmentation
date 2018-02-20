@@ -94,12 +94,27 @@ train_dataset = CARVANA(root='./data',
                                   transforms.ToTensor()])
                               )
 
+val_dataset = CARVANA(root='./data',
+                              subset="val",
+                              transform=transforms.Compose([
+                                  transforms.Scale((256,256)),
+                                  transforms.ToTensor()])
+                              )
+
+
 # define the dataloader with the previous dataset
 train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                            batch_size=8,
                                            shuffle=True,
                                            pin_memory=False, # If True, the data loader will copy tensors into CUDA pinned memory before returning them.
-                                           num_workers=0)
+                                           num_workers=0) # change to 1 if run in the server
+
+
+val_loader = torch.utils.data.DataLoader(dataset=val_dataset,
+                                           batch_size=8,
+                                           shuffle=True,
+                                           pin_memory=False, # If True, the data loader will copy tensors into CUDA pinned memory before returning them.
+                                           num_workers=0) # change to 1 if run in the server
 
 
  
@@ -196,36 +211,61 @@ class BCELoss2d(nn.Module):
         return self.bce_loss(probs_flat, targets_flat)
 
 
-# define the training function
-def train(train_loader, model, criterion, epoch, num_epochs):
+
+
+
+def train(epoch):
     model.train()
+    for batch_idx, (data, target) in enumerate(train_loader):
 
-    # set a progress bar
-    pbar = tqdm(enumerate(train_loader), total=len(train_loader))
-    for i, (images, labels) in pbar:
-        # Convert torch tensor to Variable
-        
         if use_cuda:
-            images = Variable(images.cuda())
-            labels = Variable(labels.cuda())
+            data = Variable(data.cuda())
+            target = Variable(target.cuda())
         else:
-            images = Variable(images)
-            labels = Variable(labels)
-            
-        # compute output
+            data = Variable(data)
+            target = Variable(target)
+
         optimizer.zero_grad()
-        outputs = model(images)
 
-        # measure loss
-        loss = criterion(outputs, labels)
+        output = model(data)
 
-        # compute gradient and do SGD step
+        loss = criterion(output, target)
+
         loss.backward()
+
         optimizer.step()
 
-        # update progress bar status
-        pbar.set_description('[TRAIN] - EPOCH %d/ %d - BATCH LOSS: %.4f(avg) '
-                             % (epoch + 1, num_epochs, loss.data[0]))
+        if batch_idx % 100 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loader.dataset),
+                100 * batch_idx / len(train_loader), loss.data[0]))
+
+
+
+def evaluate():
+    model.eval()
+    val_loss = 0
+    correct = 0
+    for data, target in val_loader:
+
+        if use_cuda:
+            data = Variable(data.cuda(), volatile=True)
+            target = Variable(target.cuda())
+        else:
+            data = Variable(data, volatile=True)
+            target = Variable(target)
+
+
+        output = model(data)
+        val_loss += criterion(output, target, size_average=False).data[0] # sum up batch loss                                                               
+        pred = output.data.max(1, keepdim=True)[1] # get the index of the max log-probability                                                                 
+        correct += pred.eq(target.data.view_as(pred)).cpu().sum()
+
+    val_loss /= len(val_loader.dataset) # mean loss
+    print('\nVal set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        val_loss, correct, len(val_loader.dataset),
+        100 * correct / len(val_loader.dataset)))
+
 
 
 model = small_UNET_256()
@@ -236,13 +276,11 @@ optimizer = optim.SGD(model.parameters(),
                       momentum=0.9,
                       nesterov=True)
 
-# run the training loop
-num_epochs = 2
-for epoch in range(0, num_epochs):
-    # train for one epoch
-    train(train_loader, model, criterion, epoch, num_epochs)
 
 
+for epoch in range(1, 3):
+    train(epoch)
+    evaluate()
 
 
 
