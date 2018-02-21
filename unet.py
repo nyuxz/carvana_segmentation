@@ -141,13 +141,22 @@ class small_UNET_256(nn.Module):
     Define UNET model that accepts a 256 input and mostly uses 3x3 kernels
     with stride and padding = 1. It reduces the size of the image to 8x8 pixels
     ** It might not work if the input 'x' is not a square.
+
+    detail about nn.conv:
+    torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True)
     """
 
     def __init__(self):
         super(small_UNET_256, self).__init__()
 
+
+        '''
+        more detail about down_1: 
+        nn.Conv2d(3, 16, 3) --> nn.Conv2d(16, 32, 3)
+        '''
+
         self.down_1 = nn.Sequential(
-            conv_block(3, 16),
+            conv_block(3, 16),  # initial colordim = 3
             conv_block(16, 32, stride=2, padding=1))
 
         self.down_2 = nn.Sequential(
@@ -170,7 +179,7 @@ class small_UNET_256(nn.Module):
 
     def forward(self, x):
         # 256
-        down1 = self.down_1(x)
+        down1 = self.down_1(x) # image: 3*256*256 ---> 16*254*254 ---> 32*252*252
         out = F.max_pool2d(down1, kernel_size=2, stride=2)
 
         # 64
@@ -181,7 +190,7 @@ class small_UNET_256(nn.Module):
         out = self.middle(out)
 
         # 64
-        out = F.upsample(out, scale_factor=2)
+        out = F.upsample(out, scale_factor=2) # up-conv 2*2
         out = torch.cat([down2, out], 1)
         out = self.up_2(out)
 
@@ -193,25 +202,6 @@ class small_UNET_256(nn.Module):
         # 256
         out = F.upsample(out, scale_factor=2)
         return self.output(out)
-
-
-class BCELoss2d(nn.Module):
-    """
-    Code taken from:
-    https://www.kaggle.com/c/carvana-image-masking-challenge/discussion/37208
-    """
-    def __init__(self, weight=None, size_average=True):
-        super(BCELoss2d, self).__init__()
-        self.bce_loss = nn.BCELoss(weight, size_average)
-
-    def forward(self, logits, targets):
-        probs = F.sigmoid(logits)
-        probs_flat = probs.view(-1)
-        targets_flat = targets.view(-1)
-        return self.bce_loss(probs_flat, targets_flat)
-
-
-
 
 
 def train(epoch):
@@ -257,7 +247,7 @@ def evaluate():
 
 
         output = model(data)
-        val_loss += criterion(output, target, size_average=False).data[0] # sum up batch loss                                                               
+        val_loss += criterion(output, target, size_average=True).data[0] # sum up batch loss                                                               
         pred = output.data.max(1, keepdim=True)[1] # get the index of the max log-probability                                                                 
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
@@ -269,13 +259,17 @@ def evaluate():
 
 
 model = small_UNET_256()
-criterion = BCELoss2d()
+criterion = nn.BCELoss()
+
+if use_cuda:
+    model.cuda()
+    criterion.cuda()
+
 optimizer = optim.SGD(model.parameters(),
                       weight_decay=1e-4,
                       lr=1e-4,
                       momentum=0.9,
                       nesterov=True)
-
 
 
 for epoch in range(1, 3):
