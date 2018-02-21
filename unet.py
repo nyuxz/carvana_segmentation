@@ -204,6 +204,21 @@ class small_UNET_256(nn.Module):
         return self.output(out)
 
 
+class BCELoss2d(nn.Module):
+    #
+    def __init__(self, weight=None, size_average=True):
+        super(BCELoss2d, self).__init__()
+        self.bce_loss = nn.BCELoss(weight, size_average)
+
+    def forward(self, logits, targets):
+        probs = F.sigmoid(logits)
+        probs_flat = probs.view(-1)
+        targets_flat = targets.view(-1)
+        return self.bce_loss(probs_flat, targets_flat)
+
+
+
+
 def train(epoch):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
@@ -247,7 +262,8 @@ def evaluate():
 
 
         output = model(data)
-        val_loss += criterion(output, target, size_average=True).data[0] # sum up batch loss                                                               
+
+        val_loss += criterion(output, target).data[0] # sum up batch loss                                                               
         pred = output.data.max(1, keepdim=True)[1] # get the index of the max log-probability                                                                 
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
@@ -257,9 +273,8 @@ def evaluate():
         100 * correct / len(val_loader.dataset)))
 
 
-
 model = small_UNET_256()
-criterion = nn.BCELoss()
+criterion = BCELoss2d()
 
 if use_cuda:
     model.cuda()
